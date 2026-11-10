@@ -1,0 +1,6 @@
+{
+  "name": "Academia de Marketing Digital",
+  "description": "Plataforma profissional de formação avançada em Marketing Digital e Gestão Estratégica.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
