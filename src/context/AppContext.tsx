@@ -3,6 +3,15 @@ import { CourseModule, StudentProfile, AssessmentResult, CalendarEvent, Lesson, 
 import { INITIAL_MODULES } from '../data/modulesData';
 import confetti from 'canvas-confetti';
 
+import {
+  onFirebaseAuthStateChange,
+  loginWithFirebase,
+  registerWithFirebase,
+  resetPasswordWithFirebase,
+  logoutFirebase
+} from '../services/authService';
+import { isFirebaseConfigured } from '../services/firebase';
+
 export type NavTab =
   | 'dashboard'
   | 'formacao'
@@ -44,12 +53,15 @@ export interface AppContextType {
   // Auth system
   currentUser: UserAccount | null;
   isAuthenticated: boolean;
+  isAuthLoading: boolean;
+  isFirebaseReady: boolean;
   isAuthModalOpen: boolean;
   openAuthModal: () => void;
   closeAuthModal: () => void;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  resetPassword: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  logout: () => Promise<void>;
 }
 
 // Zeroed Student Profile (Fresh state)
@@ -127,6 +139,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedModuleId, setSelectedModuleId] = useState<number | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(isFirebaseConfigured());
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
@@ -136,8 +149,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (e) {
       console.warn('Erro ao carregar usuário autenticado:', e);
     }
-    return DEFAULT_USER;
+    return isFirebaseConfigured() ? null : DEFAULT_USER;
   });
+
+  // Listen to real Firebase Authentication state changes
+  useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setIsAuthLoading(false);
+      return;
+    }
+
+    const unsubscribe = onFirebaseAuthStateChange((firebaseUser) => {
+      if (firebaseUser) {
+        const userAccount: UserAccount = {
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'Estudante'),
+          avatarUrl: firebaseUser.photoURL || undefined,
+          role: 'aluno',
+          createdAt: firebaseUser.metadata.creationTime || new Date().toISOString()
+        };
+        setCurrentUser(userAccount);
+        setStudent((prev) => ({
+          ...prev,
+          name: userAccount.name,
+          email: userAccount.email,
+          avatarUrl: userAccount.avatarUrl || prev.avatarUrl
+        }));
+      } else {
+        setCurrentUser(null);
+      }
+      setIsAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // Zeroed Modules State (v2 storage to guarantee zeroed-out state)
   const [modules, setModules] = useState<CourseModule[]>(() => {
@@ -488,61 +534,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const openAuthModal = () => setIsAuthModalOpen(true);
   const closeAuthModal = () => setIsAuthModalOpen(false);
 
-  const login = async (email: string, _password: string) => {
-    if (!email || !email.includes('@')) {
-      return { success: false, error: 'Por favor, insira um endereço de email válido.' };
+  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    if (!isFirebaseConfigured()) {
+      return {
+        success: false,
+        error: 'O Firebase Authentication ainda não está configurado. Por favor, configure as variáveis VITE_FIREBASE_* na Vercel.'
+      };
     }
 
-    const name = email.split('@')[0].replace(/[._]/g, ' ');
-    const formattedName = name.charAt(0).toUpperCase() + name.slice(1);
+    if (!email || !email.includes('@')) {
+      return { success: false, error: 'Por favor, insira um endereço de e-mail válido.' };
+    }
+    if (!password) {
+      return { success: false, error: 'Por favor, insira a sua palavra-passe.' };
+    }
 
-    const user: UserAccount = {
-      id: `usr-${Date.now()}`,
-      email: email.trim().toLowerCase(),
-      name: formattedName,
-      role: 'aluno',
-      createdAt: new Date().toISOString()
-    };
-
-    setCurrentUser(user);
-    setStudent((prev) => ({
-      ...prev,
-      name: formattedName,
-      email: email.trim().toLowerCase()
-    }));
+    const res = await loginWithFirebase(email, password);
+    if (!res.success) {
+      return { success: false, error: res.error };
+    }
 
     return { success: true };
   };
 
-  const register = async (email: string, _password: string, name: string) => {
-    if (!email || !email.includes('@')) {
-      return { success: false, error: 'Por favor, insira um email válido.' };
+  const register = async (
+    email: string,
+    password: string,
+    name: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!isFirebaseConfigured()) {
+      return {
+        success: false,
+        error: 'O Firebase Authentication ainda não está configurado. Por favor, configure as variáveis VITE_FIREBASE_* na Vercel.'
+      };
     }
+
     if (!name || name.trim().length < 3) {
       return { success: false, error: 'Por favor, insira o seu nome completo (mínimo 3 caracteres).' };
     }
+    if (!email || !email.includes('@')) {
+      return { success: false, error: 'Por favor, insira um e-mail válido.' };
+    }
+    if (!password || password.length < 6) {
+      return { success: false, error: 'A palavra-passe deve conter pelo menos 6 caracteres.' };
+    }
 
-    const user: UserAccount = {
-      id: `usr-${Date.now()}`,
-      email: email.trim().toLowerCase(),
-      name: name.trim(),
-      role: 'aluno',
-      createdAt: new Date().toISOString()
-    };
-
-    setCurrentUser(user);
-    // Reset to zeroed state for new student
-    resetProgress();
-    setStudent((prev) => ({
-      ...prev,
-      name: name.trim(),
-      email: email.trim().toLowerCase()
-    }));
+    const res = await registerWithFirebase(name, email, password);
+    if (!res.success) {
+      return { success: false, error: res.error };
+    }
 
     return { success: true };
   };
 
-  const logout = () => {
+  const resetPassword = async (
+    email: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    if (!isFirebaseConfigured()) {
+      return {
+        success: false,
+        error: 'O Firebase Authentication ainda não está configurado. Por favor, configure as variáveis VITE_FIREBASE_* na Vercel.'
+      };
+    }
+
+    return await resetPasswordWithFirebase(email);
+  };
+
+  const logout = async (): Promise<void> => {
+    if (isFirebaseConfigured()) {
+      await logoutFirebase();
+    }
     setCurrentUser(null);
     localStorage.removeItem('amh_user_v2');
   };
@@ -576,11 +637,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         luandaDate,
         currentUser,
         isAuthenticated: !!currentUser,
+        isAuthLoading,
+        isFirebaseReady: isFirebaseConfigured(),
         isAuthModalOpen,
         openAuthModal,
         closeAuthModal,
         login,
         register,
+        resetPassword,
         logout
       }}
     >
