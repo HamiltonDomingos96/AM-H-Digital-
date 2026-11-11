@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { FirestoreTestCard } from './FirestoreTestCard';
 import {
   User,
   Mail,
@@ -284,6 +285,11 @@ export const ProfileView: React.FC = () => {
               • Sistema de login disponível para troca de contas.
             </p>
           </div>
+        </div>
+
+        {/* Diagnóstico Temporário de Conectividade com o Firestore (Subetapa 3.1) */}
+        <div className="lg:col-span-12">
+          <FirestoreTestCard />
         </div>
       </div>
     </div>

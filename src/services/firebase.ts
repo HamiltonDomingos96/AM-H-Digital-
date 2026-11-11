@@ -28,6 +28,13 @@ export const isFirebaseConfigured = (): boolean => {
   );
 };
 
+/**
+ * Validação de disponibilidade do Cloud Firestore.
+ */
+export const isFirestoreReady = (): boolean => {
+  return Boolean(db && isFirebaseConfigured());
+};
+
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;

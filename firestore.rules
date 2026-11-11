@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Função de verificação de autenticação
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Função de verificação de propriedade do documento
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Regra para perfil do estudante e todas as suas subcolecções privadas
+    // (/users/{uid}/progress, /users/{uid}/assessments, /users/{uid}/calendar, etc.)
+    match /users/{uid}/{document=**} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // Teste de conectividade simples (apenas utilizadores autenticados podem ler/gravar)
+    match /_connection_test/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Bloqueio padrão para qualquer outra colecção não autorizada
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
